@@ -29,6 +29,8 @@ def compare_dirs(dir1, dir2):
     only_in_dir2 = []
     
     for root, _, files in os.walk(dir1):
+        if '.git' in root.split(os.path.sep):
+            continue
         for file in files:
             path1 = os.path.join(root, file)
             path2 = os.path.join(dir2, os.path.relpath(path1, dir1))
@@ -39,6 +41,8 @@ def compare_dirs(dir1, dir2):
                 only_in_dir1.append(os.path.relpath(path1, dir1))
     
     for root, _, files in os.walk(dir2):
+        if '.git' in root.split(os.path.sep):
+            continue
         for file in files:
             path2 = os.path.join(root, file)
             path1 = os.path.join(dir1, os.path.relpath(path2, dir2))
@@ -63,10 +67,19 @@ def side_by_side_diff(file1, file2, file1_name, file2_name):
     except UnicodeDecodeError:
         return f"<p>Unable to compare {file1} and {file2} due to encoding issues.</p>"
 
-# ... (previous Python code remains the same)
+def get_file_extensions(files):
+    """Get unique file extensions from the list of files."""
+    return sorted(set(os.path.splitext(file)[1] for file in files if os.path.splitext(file)[1]))
+
+def get_directories(files):
+    """Get unique directories from the list of files."""
+    return sorted(set(os.path.dirname(file) for file in files if os.path.dirname(file)))
 
 def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path):
     """Generate a single HTML report containing all diffs and file lists."""
+    extensions = get_file_extensions(diff_files)
+    directories = get_directories(diff_files)
+    
     html_template = """
     <!DOCTYPE html>
     <html lang="en">
@@ -95,16 +108,31 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
             #jump-table th { background-color: #f2f2f2; }
             #filter-section { margin-bottom: 20px; }
             .hidden { display: none; }
+            .filter-options { margin-top: 10px; }
+            .filter-options span { margin-right: 10px; cursor: pointer; }
+            .filter-options span:hover { text-decoration: underline; }
         </style>
     </head>
     <body>
         <h1>Repository Comparison: {{ repo1_name }} vs {{ repo2_name }}</h1>
         
         <div id="filter-section">
-            <label for="file-filter">Filter files by extension: </label>
-            <input type="text" id="file-filter" placeholder="e.g., .sol, t.sol">
+            <label for="file-filter">Filter files: </label>
+            <input type="text" id="file-filter" placeholder="e.g., .sol, contracts/">
             <button onclick="filterFiles()">Filter</button>
             <button onclick="resetFilter()">Reset</button>
+            <div class="filter-options">
+                <strong>Extensions:</strong>
+                {% for ext in extensions %}
+                <span onclick="setFilter('{{ ext }}')">{{ ext }}</span>
+                {% endfor %}
+            </div>
+            <div class="filter-options">
+                <strong>Directories:</strong>
+                {% for dir in directories %}
+                <span onclick="setFilter('{{ dir }}/')">{{ dir }}/</span>
+                {% endfor %}
+            </div>
         </div>
 
         <div id="jump-table">
@@ -184,6 +212,11 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
                 diffFiles.forEach(file => file.classList.remove('hidden'));
                 jumpRows.forEach(row => row.classList.remove('hidden'));
             }
+
+            function setFilter(value) {
+                document.getElementById('file-filter').value = value;
+                filterFiles();
+            }
         </script>
     </body>
     </html>
@@ -198,12 +231,12 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
         only_in_repo2=only_in_repo2,
         repo1_path=repo1_path,
         repo2_path=repo2_path,
-        side_by_side_diff=side_by_side_diff
+        side_by_side_diff=side_by_side_diff,
+        extensions=extensions,
+        directories=directories
     )
     
     return html_content
-
-# ... (rest of the Python code remains the same)
 
 def main(repo1_url, repo2_url):
     script_dir = os.path.dirname(os.path.abspath(__file__))
