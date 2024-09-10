@@ -5,12 +5,12 @@ import git
 import shutil
 import datetime
 import logging
-from itertools import zip_longest
+from jinja2 import Template
 
-def setup_logging():
+def setup_logging(log_dir):
     """Set up logging to file with timestamp."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"repo_comparison_{timestamp}.log"
+    log_filename = os.path.join(log_dir, f"repo_comparison_{timestamp}.log")
     logging.basicConfig(filename=log_filename, level=logging.INFO, 
                         format='%(message)s')
     return log_filename
@@ -61,17 +61,94 @@ def side_by_side_diff(file1, file2, file1_name, file2_name):
             
             return diff_table
     except UnicodeDecodeError:
-        return f"Unable to compare {file1} and {file2} due to encoding issues."
+        return f"<p>Unable to compare {file1} and {file2} due to encoding issues.</p>"
+
+def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path):
+    """Generate a single HTML report containing all diffs and file lists."""
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Repository Comparison: {{ repo1_name }} vs {{ repo2_name }}</title>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+            h1, h2 { color: #333; }
+            .file-list { margin-bottom: 20px; }
+            .file-list ul { list-style-type: none; padding-left: 20px; }
+            .diff-section { margin-bottom: 40px; }
+            .diff-file { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; }
+            .diff-file h3 { margin-top: 0; }
+            table.diff { font-family: monospace; border-collapse: collapse; width: 100%; }
+            .diff_header { background-color: #e0e0e0; }
+            td.diff_header { text-align: right; }
+            .diff_next { background-color: #c0c0c0; }
+            .diff_add { background-color: #aaffaa; }
+            .diff_chg { background-color: #ffff77; }
+            .diff_sub { background-color: #ffaaaa; }
+        </style>
+    </head>
+    <body>
+        <h1>Repository Comparison: {{ repo1_name }} vs {{ repo2_name }}</h1>
+        
+        <div class="file-list">
+            <h2>Files only in {{ repo1_name }}:</h2>
+            <ul>
+            {% for file in only_in_repo1 %}
+                <li>{{ file }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        
+        <div class="file-list">
+            <h2>Files only in {{ repo2_name }}:</h2>
+            <ul>
+            {% for file in only_in_repo2 %}
+                <li>{{ file }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        
+        <div class="diff-section">
+            <h2>File Differences:</h2>
+            {% for file in diff_files %}
+            <div class="diff-file">
+                <h3>{{ file }}</h3>
+                {{ side_by_side_diff(repo1_path + '/' + file, repo2_path + '/' + file, repo1_name + '/' + file, repo2_name + '/' + file) }}
+            </div>
+            {% endfor %}
+        </div>
+    </body>
+    </html>
+    """
+    
+    template = Template(html_template)
+    html_content = template.render(
+        repo1_name=repo1_name,
+        repo2_name=repo2_name,
+        diff_files=diff_files,
+        only_in_repo1=only_in_repo1,
+        only_in_repo2=only_in_repo2,
+        repo1_path=repo1_path,
+        repo2_path=repo2_path,
+        side_by_side_diff=side_by_side_diff
+    )
+    
+    return html_content
 
 def main(repo1_url, repo2_url):
-    log_filename = setup_logging()
-    
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(script_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
 
     repo1_name = repo1_url.split('/')[-1]
     repo2_name = repo2_url.split('/')[-1]
+    comparison_dir = os.path.join(data_dir, f"compare_{repo1_name}_to_{repo2_name}")
+    os.makedirs(comparison_dir, exist_ok=True)
+
+    log_filename = setup_logging(comparison_dir)
+
     repo1_path = os.path.join(data_dir, repo1_name)
     repo2_path = os.path.join(data_dir, repo2_name)
 
@@ -80,29 +157,17 @@ def main(repo1_url, repo2_url):
 
     diff_files, only_in_repo1, only_in_repo2 = compare_dirs(repo1_path, repo2_path)
     
-    logging.info("\nFiles that differ:")
-    for file in diff_files:
-        logging.info(f"  {file}")
-        file1 = os.path.join(repo1_path, file)
-        file2 = os.path.join(repo2_path, file)
-        diff_html = side_by_side_diff(file1, file2, f"{repo1_name}/{file}", f"{repo2_name}/{file}")
-        
-        # Save diff HTML to a separate file
-        diff_filename = f"diff_{file.replace('/', '_')}.html"
-        with open(diff_filename, 'w', encoding='utf-8') as diff_file:
-            diff_file.write(diff_html)
-        logging.info(f"  Diff saved to {diff_filename}")
+    html_report = generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path)
     
-    logging.info("\nFiles/directories only in first repository:")
-    for item in only_in_repo1:
-        logging.info(f"  {item}")
+    report_filename = os.path.join(comparison_dir, "comparison_report.html")
+    with open(report_filename, 'w', encoding='utf-8') as report_file:
+        report_file.write(html_report)
     
-    logging.info("\nFiles/directories only in second repository:")
-    for item in only_in_repo2:
-        logging.info(f"  {item}")
+    logging.info(f"Comparison complete. Results saved to {log_filename}")
+    logging.info(f"HTML report saved to {report_filename}")
     
     print(f"Comparison complete. Results saved to {log_filename}")
-    print("Diff files have been saved as separate HTML files.")
+    print(f"HTML report saved to {report_filename}")
 
 if __name__ == "__main__":
     repo1_url = "https://github.com/reserve-protocol/protocol"
