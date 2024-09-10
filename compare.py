@@ -1,11 +1,12 @@
 import os
 import filecmp
-from difflib import HtmlDiff
+from difflib import HtmlDiff, unified_diff
 import git
 import shutil
 import datetime
 import logging
 from jinja2 import Template
+import argparse
 
 def setup_logging(log_dir):
     """Set up logging to file with timestamp."""
@@ -63,9 +64,15 @@ def side_by_side_diff(file1, file2, file1_name, file2_name):
                 lines1, lines2, file1_name, file2_name, context=True, numlines=3
             )
             
+            # Generate unified diff for logging
+            unified = '\n'.join(unified_diff(lines1, lines2, file1_name, file2_name))
+            logging.info(f"Diff between {file1_name} and {file2_name}:\n{unified}\n")
+            
             return diff_table
     except UnicodeDecodeError:
-        return f"<p>Unable to compare {file1} and {file2} due to encoding issues.</p>"
+        error_message = f"Unable to compare {file1} and {file2} due to encoding issues."
+        logging.info(error_message)
+        return f"<p>{error_message}</p>"
 
 def get_file_extensions(files):
     """Get unique file extensions from the list of files."""
@@ -258,6 +265,14 @@ def main(repo1_url, repo2_url):
 
     diff_files, only_in_repo1, only_in_repo2 = compare_dirs(repo1_path, repo2_path)
     
+    logging.info(f"Files only in {repo1_name}:")
+    for file in only_in_repo1:
+        logging.info(f"  {file}")
+    
+    logging.info(f"\nFiles only in {repo2_name}:")
+    for file in only_in_repo2:
+        logging.info(f"  {file}")
+    
     html_report = generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path)
     
     report_filename = os.path.join(comparison_dir, "comparison_report.html")
@@ -271,6 +286,16 @@ def main(repo1_url, repo2_url):
     print(f"HTML report saved to {report_filename}")
 
 if __name__ == "__main__":
-    repo1_url = "https://github.com/reserve-protocol/protocol"
-    repo2_url = "https://github.com/code-423n4/2024-07-reserve"
+    parser = argparse.ArgumentParser(description="Compare two GitHub repositories")
+    parser.add_argument("--repo1", help="URL of the first repository")
+    parser.add_argument("--repo2", help="URL of the second repository")
+    args = parser.parse_args()
+
+    if args.repo1 and args.repo2:
+        repo1_url = args.repo1
+        repo2_url = args.repo2
+    else:
+        repo1_url = input("Enter the URL of the first repository: ")
+        repo2_url = input("Enter the URL of the second repository: ")
+
     main(repo1_url, repo2_url)
