@@ -23,34 +23,57 @@ def clone_repo(repo_url, target_dir):
     git.Repo.clone_from(repo_url, target_dir)
     logging.info(f"Cloned {repo_url} to {target_dir}")
 
+def find_matching_files(dir1, dir2):
+    """Find files with the same name across different directory structures."""
+    matching_files = []
+    for root1, _, files1 in os.walk(dir1):
+        if '.git' in root1.split(os.path.sep):
+            continue
+        for file1 in files1:
+            file1_path = os.path.join(root1, file1)
+            for root2, _, files2 in os.walk(dir2):
+                if '.git' in root2.split(os.path.sep):
+                    continue
+                if file1 in files2:
+                    file2_path = os.path.join(root2, file1)
+                    matching_files.append((file1_path, file2_path))
+    return matching_files
+
 def compare_dirs(dir1, dir2):
-    """Compare two directories recursively and return differences."""
+    """Compare two directories recursively and return differences and similarities."""
     diff_files = []
+    same_files = []
     only_in_dir1 = []
     only_in_dir2 = []
     
+    # Find files that exist in both directories but might be in different subdirectories
+    matching_files = find_matching_files(dir1, dir2)
+    
+    for file1_path, file2_path in matching_files:
+        if filecmp.cmp(file1_path, file2_path, shallow=False):
+            same_files.append((os.path.relpath(file1_path, dir1), os.path.relpath(file2_path, dir2)))
+        else:
+            diff_files.append((os.path.relpath(file1_path, dir1), os.path.relpath(file2_path, dir2)))
+    
+    # Find files only in dir1
     for root, _, files in os.walk(dir1):
         if '.git' in root.split(os.path.sep):
             continue
         for file in files:
-            path1 = os.path.join(root, file)
-            path2 = os.path.join(dir2, os.path.relpath(path1, dir1))
-            if os.path.exists(path2):
-                if not filecmp.cmp(path1, path2, shallow=False):
-                    diff_files.append(os.path.relpath(path1, dir1))
-            else:
-                only_in_dir1.append(os.path.relpath(path1, dir1))
+            file1_path = os.path.join(root, file)
+            if not any(file1_path == match[0] for match in matching_files):
+                only_in_dir1.append(os.path.relpath(file1_path, dir1))
     
+    # Find files only in dir2
     for root, _, files in os.walk(dir2):
         if '.git' in root.split(os.path.sep):
             continue
         for file in files:
-            path2 = os.path.join(root, file)
-            path1 = os.path.join(dir1, os.path.relpath(path2, dir2))
-            if not os.path.exists(path1):
-                only_in_dir2.append(os.path.relpath(path2, dir2))
+            file2_path = os.path.join(root, file)
+            if not any(file2_path == match[1] for match in matching_files):
+                only_in_dir2.append(os.path.relpath(file2_path, dir2))
 
-    return diff_files, only_in_dir1, only_in_dir2
+    return diff_files, same_files, only_in_dir1, only_in_dir2
 
 def side_by_side_diff(file1, file2, file1_name, file2_name):
     """Generate a side-by-side diff of two files."""
@@ -76,16 +99,16 @@ def side_by_side_diff(file1, file2, file1_name, file2_name):
 
 def get_file_extensions(files):
     """Get unique file extensions from the list of files."""
-    return sorted(set(os.path.splitext(file)[1] for file in files if os.path.splitext(file)[1]))
+    return sorted(set(os.path.splitext(file[0])[1] for file in files if os.path.splitext(file[0])[1]))
 
 def get_directories(files):
     """Get unique directories from the list of files."""
-    return sorted(set(os.path.dirname(file) for file in files if os.path.dirname(file)))
+    return sorted(set(os.path.dirname(file[0]) for file in files if os.path.dirname(file[0])))
 
-def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path):
-    """Generate a single HTML report containing all diffs and file lists."""
-    extensions = get_file_extensions(diff_files)
-    directories = get_directories(diff_files)
+def generate_html_report(repo1_name, repo2_name, diff_files, same_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path):
+    """Generate a single HTML report containing all diffs, similarities, and file lists."""
+    extensions = get_file_extensions(diff_files + same_files)
+    directories = get_directories(diff_files + same_files)
     
     html_template = """
     <!DOCTYPE html>
@@ -118,6 +141,10 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
             .filter-options { margin-top: 10px; }
             .filter-options span { margin-right: 10px; cursor: pointer; }
             .filter-options span:hover { text-decoration: underline; }
+            .same-files { margin-bottom: 20px; }
+            .same-files table { border-collapse: collapse; width: 100%; }
+            .same-files th, .same-files td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            .same-files th { background-color: #f2f2f2; }
         </style>
     </head>
     <body>
@@ -146,13 +173,31 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
             <h2>Jump to File Differences:</h2>
             <table>
                 <tr>
-                    <th>File</th>
+                    <th>File in {{ repo1_name }}</th>
+                    <th>File in {{ repo2_name }}</th>
                     <th>Extension</th>
                 </tr>
-                {% for file in diff_files %}
-                <tr class="jump-row" data-file="{{ file }}">
-                    <td><a href="#{{ file | replace('/', '-') }}">{{ file }}</a></td>
-                    <td>{{ file.split('.')[-1] }}</td>
+                {% for file1, file2 in diff_files %}
+                <tr class="jump-row" data-file="{{ file1 }}">
+                    <td><a href="#{{ file1 | replace('/', '-') }}">{{ file1 }}</a></td>
+                    <td>{{ file2 }}</td>
+                    <td>{{ file1.split('.')[-1] }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        
+        <div class="same-files">
+            <h2>Files with Same Content:</h2>
+            <table>
+                <tr>
+                    <th>File in {{ repo1_name }}</th>
+                    <th>File in {{ repo2_name }}</th>
+                </tr>
+                {% for file1, file2 in same_files %}
+                <tr>
+                    <td>{{ file1 }}</td>
+                    <td>{{ file2 }}</td>
                 </tr>
                 {% endfor %}
             </table>
@@ -178,10 +223,10 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
         
         <div class="diff-section">
             <h2>File Differences:</h2>
-            {% for file in diff_files %}
-            <div id="{{ file | replace('/', '-') }}" class="diff-file" data-file="{{ file }}">
-                <h3>{{ file }}</h3>
-                {{ side_by_side_diff(repo1_path + '/' + file, repo2_path + '/' + file, repo1_name + '/' + file, repo2_name + '/' + file) }}
+            {% for file1, file2 in diff_files %}
+            <div id="{{ file1 | replace('/', '-') }}" class="diff-file" data-file="{{ file1 }}">
+                <h3>{{ file1 }} vs {{ file2 }}</h3>
+                {{ side_by_side_diff(repo1_path + '/' + file1, repo2_path + '/' + file2, repo1_name + '/' + file1, repo2_name + '/' + file2) }}
             </div>
             {% endfor %}
         </div>
@@ -234,6 +279,7 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
         repo1_name=repo1_name,
         repo2_name=repo2_name,
         diff_files=diff_files,
+        same_files=same_files,
         only_in_repo1=only_in_repo1,
         only_in_repo2=only_in_repo2,
         repo1_path=repo1_path,
@@ -245,35 +291,48 @@ def generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only
     
     return html_content
 
+def get_full_repo_name(repo_url):
+    """Extract the full repository name (owner/repo) from the URL."""
+    parts = repo_url.rstrip('/').split('/')
+    return f"{parts[-2]}_{parts[-1]}"
+
 def main(repo1_url, repo2_url):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(script_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
 
-    repo1_name = repo1_url.split('/')[-1]
-    repo2_name = repo2_url.split('/')[-1]
-    comparison_dir = os.path.join(data_dir, f"compare_{repo1_name}_to_{repo2_name}")
+    repo1_full_name = get_full_repo_name(repo1_url)
+    repo2_full_name = get_full_repo_name(repo2_url)
+    comparison_dir = os.path.join(data_dir, f"compare_{repo1_full_name}_to_{repo2_full_name}")
     os.makedirs(comparison_dir, exist_ok=True)
 
     log_filename = setup_logging(comparison_dir)
 
-    repo1_path = os.path.join(data_dir, repo1_name)
-    repo2_path = os.path.join(data_dir, repo2_name)
+    repo1_path = os.path.join(data_dir, repo1_full_name)
+    repo2_path = os.path.join(data_dir, repo2_full_name)
 
     clone_repo(repo1_url, repo1_path)
     clone_repo(repo2_url, repo2_path)
 
-    diff_files, only_in_repo1, only_in_repo2 = compare_dirs(repo1_path, repo2_path)
+    diff_files, same_files, only_in_repo1, only_in_repo2 = compare_dirs(repo1_path, repo2_path)
     
-    logging.info(f"Files only in {repo1_name}:")
+    logging.info(f"Files only in {repo1_full_name}:")
     for file in only_in_repo1:
         logging.info(f"  {file}")
     
-    logging.info(f"\nFiles only in {repo2_name}:")
+    logging.info(f"\nFiles only in {repo2_full_name}:")
     for file in only_in_repo2:
         logging.info(f"  {file}")
     
-    html_report = generate_html_report(repo1_name, repo2_name, diff_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path)
+    logging.info(f"\nDifferent files:")
+    for file1, file2 in diff_files:
+        logging.info(f"  {file1} vs {file2}")
+    
+    logging.info(f"\nFiles with same content:")
+    for file1, file2 in same_files:
+        logging.info(f"  {file1} vs {file2}")
+    
+    html_report = generate_html_report(repo1_full_name, repo2_full_name, diff_files, same_files, only_in_repo1, only_in_repo2, repo1_path, repo2_path)
     
     report_filename = os.path.join(comparison_dir, "comparison_report.html")
     with open(report_filename, 'w', encoding='utf-8') as report_file:
