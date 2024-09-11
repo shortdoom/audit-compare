@@ -183,6 +183,23 @@ def main(repo1_url, repo2_url, deep_compare=False):
     logging.info(f"Number of different files: {len(diff_files)}")
     logging.info(f"Number of files with same content: {len(same_files)}")
     
+    # Write the full diff dump to the repo_comparison log file
+    with open(log_filename, 'a', encoding='utf-8') as log_file:
+        log_file.write("\n\n" + "=" * 50 + "\n")
+        log_file.write("FULL DIFF DUMP:\n\n")
+        for file1, file2 in diff_files:
+            try:
+                with open(os.path.join(repo1_path, file1), 'r', encoding='utf-8') as f1, \
+                     open(os.path.join(repo2_path, file2), 'r', encoding='utf-8') as f2:
+                    lines1 = f1.readlines()
+                    lines2 = f2.readlines()
+                    diff = ''.join(unified_diff(lines1, lines2, 
+                                                fromfile=f"{repo1_full_name}/{file1}", 
+                                                tofile=f"{repo2_full_name}/{file2}"))
+                    log_file.write(f"Diff between {file1} and {file2}:\n{diff}\n\n")
+            except UnicodeDecodeError:
+                log_file.write(f"Unable to compare {file1} and {file2} due to encoding issues.\n\n")
+    
     html_report = generate_html_report(
         repo1_full_name, 
         repo2_full_name, 
