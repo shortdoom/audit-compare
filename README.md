@@ -4,6 +4,8 @@ Audit-Compare allows you to compare any two remote GitHub repositories for diffe
 
 ## Installation
 
+Requires `git` and `svn` (optional) installed on your OS.
+
 1. Create a virtual environment:
     ```sh
     python3 -m venv venv

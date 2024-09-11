@@ -33,13 +33,17 @@ def setup_logging(log_dir):
     logging.getLogger().addHandler(file_handler)
     return log_filename
 
-def clone_repo(repo_url, target_dir):
+def clone_repo(repo_url, target_dir, depth=1):
     """Clone a repository from a given URL to a target directory."""
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
     try:
-        git.Repo.clone_from(repo_url, target_dir)
-        logging.info(f"Cloned {repo_url} to {target_dir}")
+        if depth is None:
+            git.Repo.clone_from(repo_url, target_dir)
+            logging.info(f"Cloned {repo_url} to {target_dir} (full clone)")
+        else:
+            git.Repo.clone_from(repo_url, target_dir, depth=depth)
+            logging.info(f"Cloned {repo_url} to {target_dir} (depth: {depth})")
     except git.exc.GitCommandError as e:
         logging.error(f"Failed to clone {repo_url}: {str(e)}")
         raise
@@ -153,11 +157,12 @@ def get_full_repo_name(repo_url):
     parts = repo_url.rstrip('/').split('/')
     return f"{parts[-2]}_{parts[-1]}"
 
-def main(repo1_url, repo2_url, deep_compare=False):
+def main(repo1_url, repo2_url, deep_compare=False, depth=1):
     start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logging.info(f"Script started at {start_time}")
     logging.info(f"Comparing repositories: {repo1_url} and {repo2_url}")
     logging.info(f"Deep compare: {deep_compare}")
+    logging.info(f"Clone depth: {depth if depth is not None else 'Full'}")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(script_dir, 'data')
@@ -173,8 +178,8 @@ def main(repo1_url, repo2_url, deep_compare=False):
     repo1_path = os.path.join(data_dir, repo1_full_name)
     repo2_path = os.path.join(data_dir, repo2_full_name)
 
-    clone_repo(repo1_url, repo1_path)
-    clone_repo(repo2_url, repo2_path)
+    clone_repo(repo1_url, repo1_path, depth)
+    clone_repo(repo2_url, repo2_path, depth)
 
     diff_files, same_files, only_in_repo1, only_in_repo2 = compare_dirs(repo1_path, repo2_path, deep_compare)
     
@@ -228,6 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--repo1", help="URL of the first repository")
     parser.add_argument("--repo2", help="URL of the second repository")
     parser.add_argument("--deep", action="store_true", help="Perform deep comparison")
+    parser.add_argument("--depth", type=int, default=1, help="Depth of git clone (default: 1, use None for full clone)")
     args = parser.parse_args()
 
     if args.repo1 and args.repo2:
@@ -237,4 +243,5 @@ if __name__ == "__main__":
         repo1_url = input("Enter the URL of the first repository: ")
         repo2_url = input("Enter the URL of the second repository: ")
 
-    main(repo1_url, repo2_url, args.deep)
+    depth = args.depth if args.depth > 0 else None
+    main(repo1_url, repo2_url, args.deep, depth)

@@ -2,3 +2,4 @@ venv
 *.log
 data/
 *.html
+__pycache__
