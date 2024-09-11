@@ -1,6 +1,6 @@
 # Audit-Compare
 
-Audit-Compare allows you to compare any two remote GitHub repositories for differences. The results are presented in an output HTML file, with options to filter by extensions and directories.
+Audit-Compare allows you to compare any two remote GitHub repositories for differences. The results are presented in an output HTML file, with options to filter by extensions and directories. Additionally, basic search functionality across the data is provided. 
 
 ## Installation
 
@@ -22,6 +22,10 @@ python compare.py <repo1> <repo2>
 Alternatively, you can run the script and enter the repository URLs when prompted:
 ```sh
 python compare.py
+```
+Optionally, you can use `--deep` flag to compare not only matching filepaths but filenames individually
+```sh
+python compare.py --deep
 ```
 
 ## Output
